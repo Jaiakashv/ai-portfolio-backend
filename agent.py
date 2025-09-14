@@ -4,28 +4,44 @@ import asyncio
 from dotenv import load_dotenv
 from livekit import agents
 from livekit.agents import AgentSession, Agent, RoomInputOptions
-from livekit.plugins import google, noise_cancellation
+
+# Optional plugins
+try:
+    from livekit.plugins import google, noise_cancellation
+except ImportError:
+    google = None
+    noise_cancellation = None
 
 load_dotenv()
+
 
 class Assistant(Agent):
     def __init__(self):
         super().__init__(instructions="You are a helpful voice AI assistant.")
 
+
 async def entrypoint(ctx: agents.JobContext):
-    session = AgentSession(
-        llm=google.beta.realtime.RealtimeModel(
+    # Initialize LLM only if google plugin is available
+    llm_model = None
+    if google:
+        llm_model = google.beta.realtime.RealtimeModel(
             model="gemini-2.0-flash-exp",
             voice="Puck",
             temperature=0.8,
             instructions="You are a helpful assistant",
-        ),
-    )
+        )
+
+    session = AgentSession(llm=llm_model)
+
+    # Setup room input options if noise_cancellation available
+    room_options = None
+    if noise_cancellation:
+        room_options = RoomInputOptions(noise_cancellation=noise_cancellation.BVC())
 
     await session.start(
         room=ctx.room,
         agent=Assistant(),
-        room_input_options=RoomInputOptions(noise_cancellation=noise_cancellation.BVC()),
+        room_input_options=room_options,
     )
 
     async def publish_action(action_obj):
@@ -43,23 +59,41 @@ async def entrypoint(ctx: agents.JobContext):
         try:
             text = getattr(item, "content", "") or ""
             low = text.lower()
+
             if "skills" in low:
                 asyncio.create_task(publish_action({"action": "SHOW_SKILLS"}))
-                asyncio.create_task(session.generate_reply(instructions="Showing your skills."))
+                asyncio.create_task(
+                    session.generate_reply(instructions="Showing your skills.")
+                )
             elif "projects" in low:
                 asyncio.create_task(publish_action({"action": "SHOW_PROJECTS"}))
-                asyncio.create_task(session.generate_reply(instructions="Here are your projects."))
+                asyncio.create_task(
+                    session.generate_reply(instructions="Here are your projects.")
+                )
             elif "about" in low:
                 asyncio.create_task(publish_action({"action": "SHOW_ABOUT"}))
-                asyncio.create_task(session.generate_reply(instructions="About me section."))
+                asyncio.create_task(
+                    session.generate_reply(instructions="About me section.")
+                )
             elif "resume" in low or "cv" in low:
                 asyncio.create_task(publish_action({"action": "SHOW_RESUME"}))
-                asyncio.create_task(session.generate_reply(instructions="Displaying your resume."))
+                asyncio.create_task(
+                    session.generate_reply(instructions="Displaying your resume.")
+                )
         except Exception as e:
-            print("on_item error", e)
+            print("on_item error:", e)
 
     # Initial greeting
-    await session.generate_reply(instructions="Hello! I am your AI assistant. You can ask me to show skills, projects, about me, or resume.")
+    await session.generate_reply(
+        instructions="Hello! I am your AI assistant. You can ask me to show skills, projects, about me, or resume."
+    )
+
 
 if __name__ == "__main__":
-    agents.cli.run_app(agents.WorkerOptions(entrypoint_fnc=entrypoint))
+    # Production mode: no watch paths to avoid Render redeploy loop
+    agents.cli.run_app(
+        agents.WorkerOptions(
+            entrypoint_fnc=entrypoint,
+            watch_paths=[],  # disable file watching
+        )
+    )
