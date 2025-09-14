@@ -21,7 +21,6 @@ class Assistant(Agent):
 
 
 async def entrypoint(ctx: agents.JobContext):
-    # Initialize LLM only if google plugin is available
     llm_model = None
     if google:
         llm_model = google.beta.realtime.RealtimeModel(
@@ -33,7 +32,6 @@ async def entrypoint(ctx: agents.JobContext):
 
     session = AgentSession(llm=llm_model)
 
-    # Setup room input options if noise_cancellation available
     room_options = None
     if noise_cancellation:
         room_options = RoomInputOptions(noise_cancellation=noise_cancellation.BVC())
@@ -45,7 +43,6 @@ async def entrypoint(ctx: agents.JobContext):
     )
 
     async def publish_action(action_obj):
-        """Send navigation action to frontend via LiveKit data channel"""
         try:
             await ctx.room.local_participant.publish_data(
                 json.dumps(action_obj), reliable=True
@@ -55,7 +52,6 @@ async def entrypoint(ctx: agents.JobContext):
 
     @session.on("conversation_item_added")
     def on_item(item):
-        """Detect user command and publish action"""
         try:
             text = getattr(item, "content", "") or ""
             low = text.lower()
@@ -90,10 +86,5 @@ async def entrypoint(ctx: agents.JobContext):
 
 
 if __name__ == "__main__":
-    # Production mode: no watch paths to avoid Render redeploy loop
-    agents.cli.run_app(
-        agents.WorkerOptions(
-            entrypoint_fnc=entrypoint,
-            watch_paths=[],  # disable file watching
-        )
-    )
+    # Production mode: just run the agent
+    agents.cli.run_app(agents.WorkerOptions(entrypoint_fnc=entrypoint))
